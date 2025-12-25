@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  server:
+    build: .
+    container_name: system-monitor
+    ports:
+      - "3000:3000"
+    volumes:
+      - ~/.taskmgrr_data:/root/.taskmgrr_data
+    restart: unless-stopped
