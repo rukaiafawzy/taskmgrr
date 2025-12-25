@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULTRA MONITOR DASHBOARD</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-dark: #0f111a;
+            --card-dark: #1a1d2d;
+            --text-light: #e0e6ed;
+            --accent-purple: #bd93f9;
+            --accent-cyan: #8be9fd;
+            --accent-pink: #ff79c6;
+            --accent-green: #50fa7b;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            font-family: 'Rajdhani', sans-serif;
+            color: var(--text-light);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.2rem;
+            text-shadow: 0 0 10px rgba(139, 233, 253, 0.3);
+        }
+
+        .status-dot {
+            height: 10px; width: 10px;
+            background-color: #555;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+            box-shadow: 0 0 5px #555;
+        }
+
+        /* GRID SYSTEM */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Full Width for History Chart */
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* CARDS */
+        .card {
+            background: var(--card-dark);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card h3 {
+            margin: 0 0 15px 0;
+            font-size: 1.1rem;
+            color: rgba(255,255,255,0.7);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .card-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        /* CHART CONTAINERS */
+        .donut-container {
+            position: relative;
+            height: 180px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .donut-inner {
+            position: absolute;
+            text-align: center;
+        }
+        .donut-inner span {
+            font-size: 2rem;
+            font-weight: bold;
+            display: block;
+        }
+        .donut-inner small {
+            font-size: 0.8rem;
+            opacity: 0.6;
+        }
+
+        .bar-container { height: 160px; }
+        .line-container { height: 300px; width: 100%; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1><span class="status-dot" id="liveDot"></span>SYSTEM OVERWATCH</h1>
+    </div>
+
+    <div class="dashboard-grid">
+        
+        <div class="card">
+            <h3>CPU LOAD <span class="card-value" id="cpuTxt">0%</span></h3>
+            <div class="donut-container">
+                <canvas id="cpuDonut"></canvas>
+                <div class="donut-inner">
+                    <span id="cpuCenter">0%</span>
+                    <small>Load</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>RAM USAGE <span class="card-value" id="ramTxt">0%</span></h3>
+            <div class="donut-container">
+                <canvas id="ramDonut"></canvas>
+                <div class="donut-inner">
+                    <span id="ramCenter">0%</span>
+                    <small>Active</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>GPU TEMP <span class="card-value" id="gpuTxt">0°C</span></h3>
+            <div class="donut-container">
+                <canvas id="gpuDonut"></canvas>
+                <div class="donut-inner">
+                    <span id="gpuCenter">0°</span>
+                    <small>Celsius</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card full-width">
+            <h3>PERFORMANCE HISTORY (Last 60 Seconds)</h3>
+            <div class="line-container">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>NETWORK I/O (KB/s)</h3>
+            <div class="bar-container">
+                <canvas id="netBar"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>DISK OPERATIONS (KB/s)</h3>
+            <div class="bar-container">
+                <canvas id="diskBar"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 1. GLOBAL CONFIG ---
+        Chart.defaults.font.family = "'Rajdhani', sans-serif";
+        Chart.defaults.color = 'rgba(255,255,255,0.5)';
+        Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+        
+        // Helper: Create Gradient
+        function createGradient(ctx, c1, c2) {
+            let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, c1);
+            gradient.addColorStop(1, c2);
+            return gradient;
+        }
+
+        // --- 2. CHART INITIALIZATION ---
+
+        // A. DONUT CHARTS (CPU, RAM, GPU)
+        const donutOptions = {
+            cutout: '75%',
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            animation: { animateScale: true, animateRotate: true }
+        };
+
+        const cpuChart = new Chart(document.getElementById('cpuDonut'), {
+            type: 'doughnut',
+            data: { labels: ['Used', 'Free'], datasets: [{ data: [0, 100], backgroundColor: ['#ff79c6', '#282a36'], borderWidth: 0, borderRadius: 20 }] },
+            options: donutOptions
+        });
+
+        const ramChart = new Chart(document.getElementById('ramDonut'), {
+            type: 'doughnut',
+            data: { labels: ['Used', 'Free'], datasets: [{ data: [0, 100], backgroundColor: ['#bd93f9', '#282a36'], borderWidth: 0, borderRadius: 20 }] },
+            options: donutOptions
+        });
+
+        const gpuChart = new Chart(document.getElementById('gpuDonut'), {
+            type: 'doughnut',
+            data: { labels: ['Temp', 'Safe'], datasets: [{ data: [0, 100], backgroundColor: ['#ffb86c', '#282a36'], borderWidth: 0, borderRadius: 20 }] },
+            options: donutOptions
+        });
+
+        // B. HISTORY LINE CHART (The Big One)
+        const ctxHist = document.getElementById('historyChart').getContext('2d');
+        const historyChart = new Chart(ctxHist, {
+            type: 'line',
+            data: {
+                labels: Array(60).fill(''), // Placeholders
+                datasets: [
+                    {
+                        label: 'CPU %',
+                        data: Array(60).fill(0),
+                        borderColor: '#ff79c6',
+                        backgroundColor: 'rgba(255, 121, 198, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'RAM %',
+                        data: Array(60).fill(0),
+                        borderColor: '#bd93f9',
+                        backgroundColor: 'rgba(189, 147, 249, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', align: 'end' } },
+                scales: {
+                    x: { display: false }, // Hide timestamps for clean look
+                    y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' } }
+                }
+            }
+        });
+
+        // C. BAR CHARTS (Net, Disk)
+        const barOptions = {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: true }, y: { display: true } }
+        };
+
+        const netChart = new Chart(document.getElementById('netBar'), {
+            type: 'bar',
+            data: { labels: ['DL', 'UL'], datasets: [{ data: [0, 0], backgroundColor: ['#50fa7b', '#ff5555'], borderRadius: 5, barThickness: 15 }] },
+            options: barOptions
+        });
+
+        const diskChart = new Chart(document.getElementById('diskBar'), {
+            type: 'bar',
+            data: { labels: ['Read', 'Write'], datasets: [{ data: [0, 0], backgroundColor: ['#8be9fd', '#f1fa8c'], borderRadius: 5, barThickness: 15 }] },
+            options: barOptions
+        });
+
+
+        // --- 3. DATA FETCHING LOGIC ---
+        async function fetchData() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+
+                if (!data || data.length === 0) return;
+
+                // 1. Update Status Indicator
+                const dot = document.getElementById('liveDot');
+                dot.style.backgroundColor = '#50fa7b';
+                dot.style.boxShadow = '0 0 10px #50fa7b';
+
+                // 2. Get LATEST data point for gauges
+                const latest = data[data.length - 1];
+
+                // Update CPU Donut
+                cpuChart.data.datasets[0].data = [latest.cpu, 100 - latest.cpu];
+                cpuChart.update();
+                document.getElementById('cpuCenter').innerText = latest.cpu + '%';
+                document.getElementById('cpuTxt').innerText = latest.cpu + '%';
+
+                // Update RAM Donut
+                ramChart.data.datasets[0].data = [latest.ram, 100 - latest.ram];
+                ramChart.update();
+                document.getElementById('ramCenter').innerText = latest.ram + '%';
+                document.getElementById('ramTxt').innerText = latest.ram + '%';
+
+                // Update GPU Donut
+                let gpuVal = latest.gpu_temp || 0;
+                gpuChart.data.datasets[0].data = [gpuVal, 100 - gpuVal];
+                // Dynamic Color for GPU Heat
+                let gpuColor = gpuVal > 75 ? '#ff5555' : '#ffb86c';
+                gpuChart.data.datasets[0].backgroundColor[0] = gpuColor;
+                gpuChart.update();
+                document.getElementById('gpuCenter').innerText = gpuVal + '°';
+                document.getElementById('gpuTxt').innerText = gpuVal + '°C';
+
+                // Update Bars
+                netChart.data.datasets[0].data = [latest.net_down, latest.net_up];
+                netChart.update();
+                diskChart.data.datasets[0].data = [latest.disk_read, latest.disk_write];
+                diskChart.update();
+
+
+                // 3. Update HISTORY Chart (The Dynamic Part)
+                // Extract arrays from the JSON list
+                const cpuHistory = data.map(d => d.cpu);
+                const ramHistory = data.map(d => d.ram);
+                
+                // If we have fewer than 60 points, pad with nulls or 0
+                // (Chart.js handles this, but let's just push the data)
+                historyChart.data.datasets[0].data = cpuHistory;
+                historyChart.data.datasets[1].data = ramHistory;
+                
+                // Need labels to match data length
+                historyChart.data.labels = data.map(d => d.timestamp.split('T')[1]); // Show Time
+                historyChart.update('none'); // 'none' mode prevents annoying flicker
+
+            } catch (err) {
+                console.error("Fetch error:", err);
+                const dot = document.getElementById('liveDot');
+                dot.style.backgroundColor = '#ff5555'; // Red if error
+                dot.style.boxShadow = '0 0 10px #ff5555';
+            }
+        }
+
+        // Run every 1 second
+        setInterval(fetchData, 1000);
+        fetchData();
+
+    </script>
+</body>
+</html>
